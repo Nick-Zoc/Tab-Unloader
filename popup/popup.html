@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="popup.css">
+  <title>Tab Unload</title>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header" id="header">
+    <div class="header-left">
+      <svg class="header-icon" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <circle cx="10" cy="10" r="4" fill="currentColor" opacity="0.3"/>
+      </svg>
+      <h1 class="header-title">Tab Unload</h1>
+    </div>
+    <div class="header-stats" id="header-stats">
+      <span class="stat-badge" id="stat-badge" title="Discarded / Total tabs">
+        <span id="discarded-count">0</span>
+        <span class="stat-sep">/</span>
+        <span id="total-count">0</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- Actions -->
+  <section class="actions-section" id="actions-section">
+    <button class="action-btn" id="btn-unload-other" title="Unload all other tabs in this window">
+      <span class="action-icon">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </span>
+      <span class="action-label">Unload Other Tabs</span>
+      <span class="action-arrow">→</span>
+    </button>
+
+    <button class="action-btn" id="btn-unload-left" title="Unload all tabs to the left of the current tab">
+      <span class="action-icon">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="action-label">Unload Tabs to Left</span>
+      <span class="action-arrow">→</span>
+    </button>
+
+    <button class="action-btn" id="btn-unload-right" title="Unload all tabs to the right of the current tab">
+      <span class="action-icon">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="action-label">Unload Tabs to Right</span>
+      <span class="action-arrow">→</span>
+    </button>
+
+    <div class="action-divider"></div>
+
+    <button class="action-btn action-btn--accent" id="btn-unload-all-windows" title="Unload tabs across all browser windows">
+      <span class="action-icon">
+        <svg viewBox="0 0 16 16" fill="none">
+          <rect x="1" y="3" width="10" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
+          <rect x="5" y="5" width="10" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/>
+        </svg>
+      </span>
+      <span class="action-label">Unload All Windows</span>
+      <span class="action-arrow">→</span>
+    </button>
+  </section>
+
+  <!-- Settings -->
+  <section class="settings-section" id="settings-section">
+    <button class="settings-toggle" id="settings-toggle" aria-expanded="false">
+      <svg class="settings-icon" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      <span>Settings</span>
+      <svg class="settings-chevron" viewBox="0 0 12 12" fill="none"><path d="M3 4.5l3 3 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="settings-panel" id="settings-panel">
+      <label class="setting-item" id="setting-pinned">
+        <span class="setting-label">Protect pinned tabs</span>
+        <input type="checkbox" id="chk-protect-pinned" checked>
+        <span class="toggle-switch"></span>
+      </label>
+      <label class="setting-item" id="setting-badge">
+        <span class="setting-label">Show badge count</span>
+        <input type="checkbox" id="chk-show-badge" checked>
+        <span class="toggle-switch"></span>
+      </label>
+    </div>
+  </section>
+
+  <!-- Tab List -->
+  <section class="tabs-section" id="tabs-section">
+    <div class="tabs-header">
+      <span class="tabs-title">Tabs in this window</span>
+      <span class="tabs-count" id="tabs-count"></span>
+    </div>
+    <div class="tabs-list" id="tabs-list">
+      <!-- Dynamically populated -->
+    </div>
+  </section>
+
+  <!-- Toast notification -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
