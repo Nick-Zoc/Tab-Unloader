@@ -185,36 +185,42 @@ async function handleContextMenuClick(info, tab) {
 
 async function discardTabs(tabIds, activeTabId) {
   const { settings } = await chrome.storage.local.get('settings');
-  let discarded = 0;
-  let skipped = 0;
-
-  for (const tabId of tabIds) {
+  
+  const tasks = tabIds.map(async (tabId) => {
     if (tabId === activeTabId) {
-      skipped++;
-      continue;
+      return { status: 'skipped' };
     }
 
     try {
       const tab = await chrome.tabs.get(tabId);
       
       if (tab.discarded) {
-        skipped++;
-        continue;
+        return { status: 'skipped' };
       }
 
       if (settings?.protectPinned && tab.pinned) {
-        skipped++;
-        continue;
+        return { status: 'skipped' };
       }
 
       if (!canDiscardTab(tab)) {
-        skipped++;
-        continue;
+        return { status: 'skipped' };
       }
 
-      await discardSingleTab(tabId);
-      discarded++;
+      const success = await discardSingleTab(tabId);
+      return { status: success ? 'discarded' : 'failed' };
     } catch (err) {
+      return { status: 'failed' };
+    }
+  });
+
+  const results = await Promise.all(tasks);
+
+  let discarded = 0;
+  let skipped = 0;
+  for (const r of results) {
+    if (r.status === 'discarded') {
+      discarded++;
+    } else {
       skipped++;
     }
   }
@@ -269,7 +275,8 @@ async function discardSingleTab(tabId) {
         func: modifyFaviconWithDottedBorder,
         args: []
       });
-      // Give the browser a moment to pick up the new favicon
+      // executeScript now waits for the returned Promise (image load + DOM update).
+      // Add a buffer for the browser to pick up the new favicon in the tab strip.
       await sleep(250);
     } catch (faviconErr) {
       // Some tabs (chrome://, chrome-extension://, etc.) can't have scripts injected
@@ -287,110 +294,127 @@ async function discardSingleTab(tabId) {
 // ─── Favicon Modification (injected as content script) ───
 
 function modifyFaviconWithDottedBorder() {
-  // This function runs in the context of the web page
-  // It modifies the favicon to add a dotted circle border
+  // This function runs in the context of the web page.
+  // It MUST return a Promise so chrome.scripting.executeScript waits
+  // for the favicon to actually be updated before we discard.
 
-  function getExistingFavicon() {
-    // Check for <link rel="icon"> or <link rel="shortcut icon">
-    const selectors = [
-      'link[rel="icon"]',
-      'link[rel="shortcut icon"]',
-      'link[rel="apple-touch-icon"]',
-      'link[rel="apple-touch-icon-precomposed"]'
-    ];
+  return new Promise((resolve) => {
+    // Safety timeout — resolve even if image load hangs
+    const timeout = setTimeout(() => resolve(false), 3000);
 
-    for (const sel of selectors) {
-      const link = document.querySelector(sel);
-      if (link && link.href) return link.href;
+    function getExistingFavicon() {
+      const selectors = [
+        'link[rel="icon"]',
+        'link[rel="shortcut icon"]',
+        'link[rel="apple-touch-icon"]',
+        'link[rel="apple-touch-icon-precomposed"]'
+      ];
+
+      for (const sel of selectors) {
+        const link = document.querySelector(sel);
+        if (link && link.href) return link.href;
+      }
+
+      return new URL('/favicon.ico', window.location.origin).href;
     }
 
-    // Fallback to /favicon.ico
-    return new URL('/favicon.ico', window.location.origin).href;
-  }
+    function updateFaviconLink(dataUrl) {
+      // Remove ALL existing icon links to prevent conflicts
+      const existingIcons = document.querySelectorAll(
+        'link[rel="icon"], link[rel="shortcut icon"]'
+      );
+      existingIcons.forEach(el => el.remove());
 
-  function applyDottedFavicon(faviconUrl) {
+      // Create a fresh link element
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
+      link.href = dataUrl;
+      document.head.appendChild(link);
+    }
+
+    function drawDottedRing(ctx, SIZE) {
+      // Dash pattern matching Chrome's native discarded tab indicator
+      // Longer dashes with moderate gaps — NOT tiny dots
+      ctx.setLineDash([5, 3.5]);
+      ctx.strokeStyle = '#9aa0a6'; // Chrome's native gray
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(SIZE / 2, SIZE / 2, (SIZE / 2) - 1.5, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+
     const SIZE = 32;
     const ICON_SIZE = 20;
     const OFFSET = (SIZE - ICON_SIZE) / 2;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = SIZE;
-    canvas.height = SIZE;
-    const ctx = canvas.getContext('2d');
+    function renderFallback() {
+      try {
+        const fallbackCanvas = document.createElement('canvas');
+        fallbackCanvas.width = SIZE;
+        fallbackCanvas.height = SIZE;
+        const fallbackCtx = fallbackCanvas.getContext('2d');
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
+        fallbackCtx.fillStyle = '#dadce0';
+        fallbackCtx.beginPath();
+        fallbackCtx.arc(SIZE / 2, SIZE / 2, ICON_SIZE / 2 - 1, 0, 2 * Math.PI);
+        fallbackCtx.fill();
 
-    img.onload = () => {
-      // Clear canvas
-      ctx.clearRect(0, 0, SIZE, SIZE);
+        drawDottedRing(fallbackCtx, SIZE);
 
-      // Draw the original favicon centered and slightly smaller
-      ctx.drawImage(img, OFFSET, OFFSET, ICON_SIZE, ICON_SIZE);
-
-      // Draw the dotted circle border around it
-      ctx.setLineDash([2.5, 2.5]);
-      ctx.strokeStyle = '#9aa0a6'; // Chrome's native gray color
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(SIZE / 2, SIZE / 2, (SIZE / 2) - 1.5, 0, 2 * Math.PI);
-      ctx.stroke();
-
-      // Update or create the favicon link element
-      const dataUrl = canvas.toDataURL('image/png');
-      let link = document.querySelector('link[rel="icon"]');
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'icon';
-        document.head.appendChild(link);
+        const dataUrl = fallbackCanvas.toDataURL('image/png');
+        updateFaviconLink(dataUrl);
+        resolve(true);
+      } catch (err) {
+        resolve(false);
       }
-      // Remove old sizes attribute to avoid conflicts
-      link.removeAttribute('sizes');
-      link.type = 'image/png';
-      link.href = dataUrl;
+    }
 
-      // Also update shortcut icon if exists
-      const shortcutLink = document.querySelector('link[rel="shortcut icon"]');
-      if (shortcutLink) {
-        shortcutLink.href = dataUrl;
+    try {
+      const faviconUrl = getExistingFavicon();
+      const img = new Image();
+      
+      // Do not set crossOrigin for data URLs as it might fail on some platforms
+      if (!faviconUrl.startsWith('data:')) {
+        img.crossOrigin = 'anonymous';
       }
-    };
 
-    img.onerror = () => {
-      // If the image can't be loaded (CORS, etc.), draw a generic dotted circle
-      ctx.clearRect(0, 0, SIZE, SIZE);
+      img.onload = () => {
+        clearTimeout(timeout);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = SIZE;
+          canvas.height = SIZE;
+          const ctx = canvas.getContext('2d');
 
-      // Draw a placeholder circle
-      ctx.fillStyle = '#dadce0';
-      ctx.beginPath();
-      ctx.arc(SIZE / 2, SIZE / 2, ICON_SIZE / 2 - 1, 0, 2 * Math.PI);
-      ctx.fill();
+          // Draw the original favicon centered and slightly smaller
+          ctx.drawImage(img, OFFSET, OFFSET, ICON_SIZE, ICON_SIZE);
 
-      // Draw the dotted border
-      ctx.setLineDash([2.5, 2.5]);
-      ctx.strokeStyle = '#9aa0a6';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(SIZE / 2, SIZE / 2, (SIZE / 2) - 1.5, 0, 2 * Math.PI);
-      ctx.stroke();
+          // Draw the dashed circle border
+          drawDottedRing(ctx, SIZE);
 
-      const dataUrl = canvas.toDataURL('image/png');
-      let link = document.querySelector('link[rel="icon"]');
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'icon';
-        document.head.appendChild(link);
-      }
-      link.removeAttribute('sizes');
-      link.type = 'image/png';
-      link.href = dataUrl;
-    };
+          // Update the favicon in the DOM
+          const dataUrl = canvas.toDataURL('image/png');
+          updateFaviconLink(dataUrl);
+          resolve(true);
+        } catch (err) {
+          // If drawImage or toDataURL fails (e.g. CORS/tainted canvas), run fallback
+          renderFallback();
+        }
+      };
 
-    img.src = faviconUrl;
-  }
+      img.onerror = () => {
+        clearTimeout(timeout);
+        renderFallback();
+      };
 
-  const faviconUrl = getExistingFavicon();
-  applyDottedFavicon(faviconUrl);
+      img.src = faviconUrl;
+    } catch (err) {
+      clearTimeout(timeout);
+      renderFallback();
+    }
+  });
 }
 
 // ─── Helpers ───
